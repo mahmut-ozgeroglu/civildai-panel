@@ -1,0 +1,55 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --- MODELLER ---
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  password      String?
+  role          String    @default("COMPANY") // "COMPANY" veya "CANDIDATE"
+  
+  // Aday ise CV
+  cvUrl         String?
+  
+  // İlişkiler
+  jobs          Job[]
+  applications  Application[]
+  
+  createdAt     DateTime  @default(now())
+}
+
+model Job {
+  id          String    @id @default(cuid())
+  title       String
+  location    String?
+  description String?
+  status      String    @default("ACTIVE") // ACTIVE, PASSIVE, DELETED
+  
+  companyId   String
+  company     User      @relation(fields: [companyId], references: [id])
+  
+  applications Application[]
+
+  createdAt   DateTime  @default(now())
+}
+
+model Application {
+  id          String   @id @default(cuid())
+  coverLetter String?
+  
+  candidateId String
+  candidate   User     @relation(fields: [candidateId], references: [id])
+  
+  jobId       String
+  job         Job      @relation(fields: [jobId], references: [id])
+
+  createdAt   DateTime @default(now())
+}
