@@ -14,10 +14,17 @@ model User {
   name          String?
   email         String    @unique
   password      String?
-  role          String    @default("COMPANY") // "COMPANY" veya "CANDIDATE"
   
-  // Aday ise CV
+  // DÜZELTME: Sadece tek bir role satırı olmalı
+  // Seçenekler: "COMPANY", "PROFESSIONAL", "INDIVIDUAL"
+  role          String    @default("INDIVIDUAL") 
+  
+  // YENİ ALAN: Meslek (Sadece Profesyoneller için)
+  profession    String?   
+
   cvUrl         String?
+  // Aday ise CV
+
   
   // İlişkiler
   jobs          Job[]

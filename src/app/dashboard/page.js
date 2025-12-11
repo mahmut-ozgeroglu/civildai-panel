@@ -1,17 +1,15 @@
 // src/app/dashboard/page.js
 import { getJobs } from "../actions";
 import { prisma } from "../lib/prisma";
-import DashboardClient from "./DashboardClient"; // Az önce yaptığımız tasarım dosyası
+import DashboardClient from "./DashboardClient";
 import { cookies } from "next/headers";
 import { jwtVerify } from "jose";
 
 export default async function DashboardPage() {
-  // 1. Veritabanından ilanları çek
   const jobs = await getJobs();
-
-  // 2. Giriş yapan kullanıcının rolünü bul (Firma mı Aday mı?)
-  // Bu kısım "İlan Ver" butonunu kime göstereceğimizi belirler.
-  let userRole = "CANDIDATE"; // Varsayılan
+  
+  let userRole = "INDIVIDUAL";
+  let userProfession = ""; // Meslek bilgisini de tutalım
   let userId = null;
 
   try {
@@ -19,21 +17,22 @@ export default async function DashboardPage() {
     if (session) {
        const secret = new TextEncoder().encode("BURAYA_COK_GIZLI_BIR_KELIME_YAZ");
        const { payload } = await jwtVerify(session, secret);
-       userRole = payload.role;
        
-       // Veritabanından ID'yi bulalım
+       // Veritabanından en güncel bilgiyi çek
        const user = await prisma.user.findUnique({ where: { email: payload.email } });
-       userId = user?.id;
+       if (user) {
+         userRole = user.role;
+         userId = user.id;
+         userProfession = user.profession; // Mesleği al
+       }
     }
-  } catch (e) {
-    // Hata olursa varsayılan kalır
-  }
+  } catch (e) {}
 
-  // 3. Tasarımı çalıştır ve verileri içine at
   return (
     <DashboardClient 
        initialJobs={jobs} 
        userRole={userRole} 
+       userProfession={userProfession} // Tasarıma gönder
        userId={userId} 
     />
   );

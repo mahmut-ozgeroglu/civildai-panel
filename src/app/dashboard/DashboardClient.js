@@ -2,10 +2,10 @@
 "use client";
 
 import React, { useState } from 'react';
-import { createJob, applyToJob, logout } from '../actions'; // <-- logout eklendi
-import { FiSearch, FiX, FiLogOut, FiUser, FiBriefcase } from 'react-icons/fi'; // İkonlar eklendi
+import { createJob, applyToJob, logout } from '../actions';
+import { FiSearch, FiX, FiLogOut, FiUser, FiBriefcase } from 'react-icons/fi';
 
-export default function DashboardClient({ initialJobs, userRole, userId }) {
+export default function DashboardClient({ initialJobs, userRole, userId, userProfession }) {
   // STATE'LER
   const [jobs, setJobs] = useState(initialJobs);
   const [filters, setFilters] = useState({ search: '', type: 'Tümü', location: 'Tümü' });
@@ -26,10 +26,13 @@ export default function DashboardClient({ initialJobs, userRole, userId }) {
     return matchSearch && matchType && matchLoc;
   });
 
+  // KİMLER İLAN VEREBİLİR? (Kurumsal Firmalar VE Profesyonel Ustalar)
+  const canPostJob = userRole === 'COMPANY' || userRole === 'PROFESSIONAL';
+
   return (
     <div className="min-h-screen bg-gray-50 font-sans pb-20">
       
-      {/* --- GÜNCELLENEN HEADER (Üst Kısım) --- */}
+      {/* --- HEADER (Üst Kısım) --- */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
          <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
             
@@ -44,12 +47,17 @@ export default function DashboardClient({ initialJobs, userRole, userId }) {
 
             {/* Sağ Taraf: Profil ve Butonlar */}
             <div className="flex items-center gap-3">
-                {/* Kullanıcı Bilgisi (Kim girdi?) */}
+                {/* Kullanıcı Bilgisi */}
                 <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-gray-100 rounded-full border border-gray-200">
                     <div className="w-6 h-6 bg-gray-300 rounded-full flex items-center justify-center text-xs text-gray-600">
                         <FiUser />
                     </div>
-                    <span className="text-xs font-bold text-gray-600 uppercase">{userRole === 'COMPANY' ? 'Firma Hesabı' : 'Aday Hesabı'}</span>
+                    <div className="flex flex-col leading-none">
+                        <span className="text-xs font-bold text-gray-700 uppercase">
+                            {userRole === 'COMPANY' ? 'KURUMSAL' : userRole === 'PROFESSIONAL' ? 'PROFESYONEL' : 'BİREYSEL'}
+                        </span>
+                        {userProfession && <span className="text-[10px] text-gray-500">{userProfession}</span>}
+                    </div>
                 </div>
 
                 {/* Çıkış Butonu */}
@@ -57,10 +65,12 @@ export default function DashboardClient({ initialJobs, userRole, userId }) {
                     <FiLogOut size={20} />
                 </button>
 
-                {/* İlan Ver Butonu (Sadece Firmaysa) */}
-                <button onClick={() => setIsPostJobModalOpen(true)} className="bg-yellow-500 hover:bg-yellow-400 text-slate-900 px-5 py-2.5 rounded-xl font-bold shadow-md flex items-center gap-2 text-sm transition-transform active:scale-95">
-                    <FiBriefcase /> İlan Ver
-                </button>
+                {/* İlan Ver Butonu (GÜNCELLENDİ: Hem COMPANY hem PROFESSIONAL görebilir) */}
+                {canPostJob && (
+                    <button onClick={() => setIsPostJobModalOpen(true)} className="bg-yellow-500 hover:bg-yellow-400 text-slate-900 px-5 py-2.5 rounded-xl font-bold shadow-md flex items-center gap-2 text-sm transition-transform active:scale-95">
+                        <FiBriefcase /> İlan Ver
+                    </button>
+                )}
             </div>
          </div>
       </div>
@@ -112,7 +122,7 @@ export default function DashboardClient({ initialJobs, userRole, userId }) {
 
                         {/* Etiketler */}
                         <div className="flex flex-wrap gap-2 mb-4">
-                            <span className="bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-1 rounded-lg uppercase">Tam Zamanlı</span>
+                            <span className="bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-1 rounded-lg uppercase">{job.type || "Tam Zamanlı"}</span>
                             <span className="bg-gray-100 text-gray-600 text-[10px] font-bold px-2 py-1 rounded-lg flex items-center gap-1">📍 {job.location || 'Konum Yok'}</span>
                         </div>
 
