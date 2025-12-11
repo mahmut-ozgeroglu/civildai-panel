@@ -6,6 +6,7 @@ import { compare } from "bcryptjs";
 import { SignJWT } from "jose";
 import { cookies } from "next/headers";
 
+
 // ... kodlar buradan devam etsin ...
 
 // 1. İlanları Getir
@@ -193,4 +194,28 @@ export async function login(formData) {
 // 8. ÇIKIŞ YAP (LOGOUT)
 export async function logout() {
 (await cookies()).delete("session");  redirect("/login");
+}
+
+// 9. PROFİL GÜNCELLE
+export async function updateProfile(formData) {
+  const userId = formData.get("userId");
+  const name = formData.get("name");
+  const email = formData.get("email");
+  const profession = formData.get("profession");
+  const cvUrl = formData.get("cvUrl");
+
+  // Veritabanını güncelle
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      name,
+      email,
+      profession, // Eğer şirketse burası null kalabilir, sorun yok
+      cvUrl
+    }
+  });
+
+  // Profil sayfasını yenile ki yeni bilgiler görünsün
+  revalidatePath("/profile");
+  revalidatePath("/dashboard"); // Dashboard'daki isim de değişsin
 }
