@@ -64,6 +64,9 @@ export default function DashboardClient({ initialJobs, userRole, userId, userPro
                 <button onClick={() => logout()} className="text-gray-500 hover:text-red-600 p-2 transition-colors" title="Çıkış Yap">
                     <FiLogOut size={20} />
                 </button>
+                <a href="/network" className="hidden md:flex items-center gap-2 text-slate-600 hover:text-blue-600 font-bold px-3 py-2 transition-colors">
+                    <FiSearch /> Profesyonelleri Bul
+                </a>
 
                 {/* İlan Ver Butonu (GÜNCELLENDİ: Hem COMPANY hem PROFESSIONAL görebilir) */}
                 {canPostJob && (

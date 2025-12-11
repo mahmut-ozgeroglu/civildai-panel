@@ -219,3 +219,27 @@ export async function updateProfile(formData) {
   revalidatePath("/profile");
   revalidatePath("/dashboard"); // Dashboard'daki isim de değişsin
 }
+// 10. PROFESYONELLERİ GETİR (NETWORK İÇİN)
+export async function getProfessionals() {
+  try {
+    const professionals = await prisma.user.findMany({
+      where: {
+        role: 'PROFESSIONAL' // Sadece ustalar ve mimarlar
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        profession: true,
+        cvUrl: true,
+        createdAt: true
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+    return professionals;
+  } catch (error) {
+    return [];
+  }
+}
