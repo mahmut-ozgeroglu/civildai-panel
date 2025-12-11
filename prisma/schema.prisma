@@ -7,56 +7,180 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// --- MODELLER ---
-
+// --- 1. KULLANICI (USER) ---
 model User {
   id            String    @id @default(cuid())
   name          String?
   email         String    @unique
   password      String?
   
-  // DÜZELTME: Sadece tek bir role satırı olmalı
-  // Seçenekler: "COMPANY", "PROFESSIONAL", "INDIVIDUAL"
+  // ROL: "COMPANY", "PROFESSIONAL", "INDIVIDUAL"
   role          String    @default("INDIVIDUAL") 
   
-  // YENİ ALAN: Meslek (Sadece Profesyoneller için)
+  // MESLEK: Sadece Profesyoneller için (Örn: "Mimar", "Seramik Ustası")
   profession    String?   
-
   cvUrl         String?
-  // Aday ise CV
 
+  // --- İLİŞKİLER ---
+  projects      Project[]      // Kendi oluşturduğu projeler
+  jobs          Job[]          // Verdiği iş ilanları
+  applications  Application[]  // Yaptığı başvurular
   
-  // İlişkiler
-  jobs          Job[]
-  applications  Application[]
+  // Proje Yönetimi ile ilgili ilişkiler
+  tasks         Task[]         // Atandığı görevler
+  siteLogs      SiteLog[]      // Paylaştığı şantiye fotoları
+  tenders       Tender[]       // Açtığı ihaleler
+  proposals     Proposal[]     // Verdiği teklifler
+  projectMsgs   ProjectMessage[] // Proje sohbetindeki mesajları
+
+  // Genel Mesajlaşma (DM)
+  sentMsgs      Message[]      @relation("SentMessages")
+  receivedMsgs  Message[]      @relation("ReceivedMessages")
   
-  createdAt     DateTime  @default(now())
+  createdAt     DateTime       @default(now())
 }
 
+// --- 2. İŞ İLANI (JOB BOARD) ---
 model Job {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   title       String
   location    String?
   description String?
-  status      String    @default("ACTIVE") // ACTIVE, PASSIVE, DELETED
+  type        String?  // Tam Zamanlı, Yarı Zamanlı vb.
+  status      String   @default("ACTIVE") // ACTIVE, PASSIVE, DELETED
   
   companyId   String
-  company     User      @relation(fields: [companyId], references: [id])
+  company     User     @relation(fields: [companyId], references: [id])
   
   applications Application[]
 
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime @default(now())
 }
 
 model Application {
   id          String   @id @default(cuid())
   coverLetter String?
+  name        String?
+  email       String?
+  resumeUrl   String?  // CV Linki
   
-  candidateId String
-  candidate   User     @relation(fields: [candidateId], references: [id])
+  candidateId String?  // Üye olmadan başvuru olursa null olabilir
+  candidate   User?    @relation(fields: [candidateId], references: [id])
   
   jobId       String
   job         Job      @relation(fields: [jobId], references: [id])
 
   createdAt   DateTime @default(now())
+}
+
+// --- 3. PROJE YÖNETİMİ (ANA MERKEZ) ---
+model Project {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  location    String?
+  imageUrl    String?  // Proje fotoğrafı linki
+  status      String   @default("ONGOING") // "ONGOING", "COMPLETED"
+  
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id])
+  
+  // PROJEYE BAĞLI MODÜLLER
+  tasks       Task[]           // İş Takibi
+  siteLogs    SiteLog[]        // Şantiye Duvarı
+  tenders     Tender[]         // İhaleler
+  messages    ProjectMessage[] // Proje Sohbeti
+
+  createdAt   DateTime @default(now())
+}
+
+// --- 4. İŞ TAKİBİ (TASK) ---
+model Task {
+  id          String   @id @default(cuid())
+  title       String
+  status      String   @default("TODO") // TODO, DONE
+  
+  projectId   String   // Hangi projeye ait?
+  project     Project  @relation(fields: [projectId], references: [id])
+
+  userId      String?  // Kim oluşturdu? (Opsiyonel olabilir)
+  user        User?    @relation(fields: [userId], references: [id])
+
+  createdAt   DateTime @default(now())
+}
+
+// --- 5. ŞANTİYE GÜNLÜĞÜ (SITE LOG) ---
+model SiteLog {
+  id          String   @id @default(cuid())
+  content     String
+  imageUrl    String?
+  
+  projectId   String   // Hangi projeye ait?
+  project     Project  @relation(fields: [projectId], references: [id])
+
+  userId      String   // Kim paylaştı?
+  user        User     @relation(fields: [userId], references: [id])
+
+  createdAt   DateTime @default(now())
+}
+
+// --- 6. İHALE SİSTEMİ (TENDER) ---
+model Tender {
+  id          String     @id @default(cuid())
+  title       String
+  description String
+  budget      String?    // Örn: "500.000 TL"
+  deadline    DateTime?  // Son tarih
+  status      String     @default("OPEN") // OPEN, CLOSED
+  
+  projectId   String     // Hangi projeye ait?
+  project     Project    @relation(fields: [projectId], references: [id])
+  
+  companyId   String     // İhaleyi açan firma
+  company     User       @relation(fields: [companyId], references: [id])
+  
+  proposals   Proposal[] // Gelen teklifler
+  
+  createdAt   DateTime   @default(now())
+}
+
+model Proposal {
+  id          String   @id @default(cuid())
+  price       String   // Verilen fiyat
+  note        String?  // Açıklama
+  status      String   @default("PENDING") // PENDING, ACCEPTED, REJECTED
+  
+  tenderId    String
+  tender      Tender   @relation(fields: [tenderId], references: [id])
+  
+  bidderId    String   // Teklifi veren Usta/Firma
+  bidder      User     @relation(fields: [bidderId], references: [id])
+  
+  createdAt   DateTime @default(now())
+}
+
+// --- 7. PROJE SOHBETİ (CHAT) ---
+model ProjectMessage {
+  id        String   @id @default(cuid())
+  content   String
+  
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id])
+  
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  
+  createdAt DateTime @default(now())
+}
+
+// --- 8. GENEL MESAJLAŞMA (DM) ---
+model Message {
+  id          String   @id @default(cuid())
+  content     String
+  senderId    String
+  receiverId  String
+  createdAt   DateTime @default(now())
+  
+  sender      User     @relation("SentMessages", fields: [senderId], references: [id])
+  receiver    User     @relation("ReceivedMessages", fields: [receiverId], references: [id])
 }

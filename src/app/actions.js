@@ -243,3 +243,126 @@ export async function getProfessionals() {
     return [];
   }
 }
+// 11. YENİ PROJE EKLE
+export async function createProject(formData) {
+  const userId = formData.get("userId"); // Bunu formdan gizli alacağız
+  const title = formData.get("title");
+  const description = formData.get("description");
+  const location = formData.get("location");
+  const status = formData.get("status");
+  const imageUrl = formData.get("imageUrl"); // Şimdilik link olarak alalım
+
+  await prisma.project.create({
+    data: {
+      title,
+      description,
+      location,
+      status,
+      imageUrl,
+      ownerId: userId
+    }
+  });
+
+  revalidatePath("/projects");
+}
+
+// 12. PROJELERİ GETİR (Kullanıcıya Özel)
+export async function getUserProjects(userId) {
+  try {
+    return await prisma.project.findMany({
+      where: { ownerId: userId },
+      orderBy: { createdAt: 'desc' }
+    });
+  } catch (error) {
+    return [];
+  }
+}
+// 13. İHALE OLUŞTUR
+export async function createTender(formData) {
+  const title = formData.get("title");
+  const description = formData.get("description");
+  const budget = formData.get("budget");
+  const companyId = formData.get("companyId");
+
+  await prisma.tender.create({
+    data: { title, description, budget, companyId }
+  });
+  revalidatePath("/tenders");
+}
+
+// 14. İHALELERİ GETİR
+export async function getTenders() {
+  return await prisma.tender.findMany({
+    include: { company: true, proposals: true },
+    orderBy: { createdAt: 'desc' }
+  });
+}
+// 15. PROJE DETAYLARINI GETİR
+export async function getProjectDetails(projectId) {
+  try {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: {
+        tasks: { orderBy: { createdAt: 'desc' } },
+        siteLogs: { include: { user: true }, orderBy: { createdAt: 'desc' } },
+        tenders: { include: { proposals: true }, orderBy: { createdAt: 'desc' } },
+        messages: { include: { user: true }, orderBy: { createdAt: 'asc' } } // Sohbet
+      }
+    });
+    return project;
+  } catch (error) {
+    return null;
+  }
+}
+
+// 16. PROJEYE GÖREV/İHALE EKLEME ACTIONS
+export async function addTask(formData) {
+    const projectId = formData.get("projectId");
+    const title = formData.get("title");
+    await prisma.task.create({ data: { title, projectId } });
+    revalidatePath(`/projects/${projectId}`);
+}
+
+export async function addProjectMessage(formData) {
+    const projectId = formData.get("projectId");
+    const userId = formData.get("userId");
+    const content = formData.get("content");
+    await prisma.projectMessage.create({ data: { content, projectId, userId } });
+    revalidatePath(`/projects/${projectId}`);
+}
+
+export async function createProjectTender(formData) {
+    const projectId = formData.get("projectId");
+    const companyId = formData.get("companyId");
+    const title = formData.get("title");
+    const description = formData.get("description");
+    const budget = formData.get("budget");
+    
+    await prisma.tender.create({
+        data: { title, description, budget, projectId, companyId }
+    });
+    revalidatePath(`/projects/${projectId}`);
+}
+// ... Mevcut kodların en altına ekle ...
+
+// 17. ŞANTİYE GÜNLÜĞÜNE EKLE
+export async function createSiteLog(formData) {
+  const content = formData.get("content");
+  const projectId = formData.get("projectId");
+  const userId = formData.get("userId");
+
+  await prisma.siteLog.create({
+    data: { content, projectId, userId }
+  });
+  revalidatePath(`/projects/${projectId}`);
+}
+
+// 18. GÖREV DURUMUNU DEĞİŞTİR (Yapıldı/Yapılmadı)
+export async function toggleTaskStatus(taskId, projectId, currentStatus) {
+  const newStatus = currentStatus === 'TODO' ? 'DONE' : 'TODO';
+  await prisma.task.update({
+    where: { id: taskId },
+    data: { status: newStatus }
+  });
+  revalidatePath(`/projects/${projectId}`);
+}
