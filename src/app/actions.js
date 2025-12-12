@@ -270,7 +270,12 @@ export async function createProject(formData) {
 export async function getUserProjects(userId) {
   try {
     return await prisma.project.findMany({
-      where: { ownerId: userId },
+      where: {
+        OR: [
+          { ownerId: userId }, // Sahibi olduklarım
+          { members: { some: { userId: userId } } } // Üyesi olduklarım
+        ]
+      },
       orderBy: { createdAt: 'desc' }
     });
   } catch (error) {
@@ -298,15 +303,20 @@ export async function getTenders() {
   });
 }
 // 15. PROJE DETAYLARINI GETİR
+
 export async function getProjectDetails(projectId) {
   try {
     const project = await prisma.project.findUnique({
       where: { id: projectId },
       include: {
+        documents: { include: { uploader: true } },
         tasks: { orderBy: { createdAt: 'desc' } },
         siteLogs: { include: { user: true }, orderBy: { createdAt: 'desc' } },
         tenders: { include: { proposals: true }, orderBy: { createdAt: 'desc' } },
-        messages: { include: { user: true }, orderBy: { createdAt: 'asc' } } // Sohbet
+        messages: { include: { user: true }, orderBy: { createdAt: 'asc' } },
+        // --- BU SATIRI MUTLAKA EKLE ---
+        members: { include: { user: true } } 
+        
       }
     });
     return project;
@@ -365,4 +375,115 @@ export async function toggleTaskStatus(taskId, projectId, currentStatus) {
     data: { status: newStatus }
   });
   revalidatePath(`/projects/${projectId}`);
+}
+// ... Mevcut kodların en altı ...
+
+// 19. PROJEYE EKİP ÜYESİ EKLE
+export async function addTeamMember(formData) {
+  const email = formData.get("email");
+  const projectId = formData.get("projectId");
+  const roleTitle = formData.get("roleTitle");
+  const canManageTenders = formData.get("canManageTenders") === 'on'; // Checkbox kontrolü
+
+  // 1. Kullanıcıyı bul
+  const userToAdd = await prisma.user.findUnique({ where: { email } });
+  
+  if (!userToAdd) {
+    // Gerçek hayatta hata mesajı döneriz ama şimdilik sessiz geçelim
+    return;
+  }
+
+  // 2. Projeye ekle
+  try {
+    await prisma.projectMember.create({
+      data: {
+        projectId,
+        userId: userToAdd.id,
+        roleTitle,
+        canManageTenders
+      }
+    });
+    revalidatePath(`/projects/${projectId}`);
+  } catch (e) {
+    console.log("Zaten ekli olabilir");
+  }
+}
+// ... Mevcut kodlar ...
+
+// 21. BELGE EKLE
+export async function uploadDocument(formData) {
+  const projectId = formData.get("projectId");
+  const uploaderId = formData.get("uploaderId");
+  const name = formData.get("name");
+  const type = formData.get("type"); // PDF, DWG...
+  // Gerçekte burada Vercel Blob'a yükleyip URL alırız. Şimdilik simüle ediyoruz:
+  const url = "https://placehold.co/600x400.png?text=Dosya+Onizleme"; 
+
+  await prisma.projectDocument.create({
+    data: { name, type, url, projectId, uploaderId }
+  });
+  revalidatePath(`/projects/${projectId}`);
+}
+
+// 22. MEDYALI PAYLAŞIM (SiteLog Güncellemesi)
+// (Eski createSiteLog yerine bunu kullanacağız veya güncelleyeceğiz)
+export async function createSiteLogWithMedia(formData) {
+  const content = formData.get("content");
+  const projectId = formData.get("projectId");
+  const userId = formData.get("userId");
+  const mediaUrl = formData.get("mediaUrl"); // Formdan gelen URL
+
+  await prisma.siteLog.create({
+    data: { content, projectId, userId, mediaUrl }
+  });
+  
+  // BİLDİRİM GÖNDER (Proje sahibine)
+  // Not: Gerçek uygulamada tüm ekibe döngüyle gönderilir.
+  const project = await prisma.project.findUnique({ where: { id: projectId } });
+  if (project && project.ownerId !== userId) {
+      await prisma.notification.create({
+          data: {
+              userId: project.ownerId,
+              content: `Projende yeni bir şantiye paylaşımı yapıldı.`,
+              link: `/projects/${projectId}`
+          }
+      });
+  }
+
+  revalidatePath(`/projects/${projectId}`);
+}
+
+// 23. BİLDİRİMLERİ GETİR
+export async function getNotifications(userId) {
+    return await prisma.notification.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: 10
+    });
+}
+// 24. PROJE SİL
+export async function deleteProject(formData) {
+  const projectId = formData.get("projectId");
+  // Önce bağlı kayıtları silmek gerekebilir (Cascade ayarı yoksa)
+  // Prisma şemasında Cascade varsa direkt silinir. Biz güvenli yolu seçelim:
+  await prisma.project.delete({ where: { id: projectId } });
+  redirect("/projects");
+}
+
+// 25. EKİPTEN ÜYE ÇIKAR
+export async function removeTeamMember(formData) {
+  const memberId = formData.get("memberId");
+  const projectId = formData.get("projectId");
+  
+  await prisma.projectMember.delete({ where: { id: memberId } });
+  revalidatePath(`/projects/${projectId}`);
+}
+
+// 26. BİLDİRİMLERİ OKUNDU İŞARETLE
+export async function markNotificationsAsRead(userId) {
+  await prisma.notification.updateMany({
+    where: { userId, isRead: false },
+    data: { isRead: true }
+  });
+  revalidatePath("/dashboard");
 }
