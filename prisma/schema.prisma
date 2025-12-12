@@ -21,6 +21,9 @@ model User {
   profession    String?   
   cvUrl         String?
 
+  followedBy    Follows[] @relation("followedBy")
+  following     Follows[] @relation("following")
+
   // --- İLİŞKİLER ---
   projects      Project[]      // Kendi oluşturduğu projeler
   jobs          Job[]          // Verdiği iş ilanları
@@ -184,3 +187,13 @@ model Message {
   sender      User     @relation("SentMessages", fields: [senderId], references: [id])
   receiver    User     @relation("ReceivedMessages", fields: [receiverId], references: [id])
 }
+model Follows {
+  follower    User @relation("following", fields: [followerId], references: [id])
+  followerId  String
+  following   User @relation("followedBy", fields: [followingId], references: [id])
+  followingId String
+
+  @@id([followerId, followingId])
+}
+  
+
