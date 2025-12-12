@@ -5,9 +5,7 @@ import { redirect } from "next/navigation"; // Sadece 1 kere yazılmalı
 import { compare } from "bcryptjs";
 import { SignJWT } from "jose";
 import { cookies } from "next/headers";
-
-
-// ... kodlar buradan devam etsin ...
+import { jwtVerify } from "jose";
 
 // 1. İlanları Getir
 export async function getJobs() {
@@ -114,6 +112,8 @@ export async function createJob(formData) {
   redirect('/dashboard');
 }
 // 6. İLANA BAŞVUR (Aday Formu)
+// src/app/actions.js içindeki applyToJob fonksiyonu:
+
 export async function applyToJob(formData) {
   const jobId = formData.get("jobId");
   const name = formData.get("name");
@@ -121,33 +121,35 @@ export async function applyToJob(formData) {
   const cvUrl = formData.get("cvUrl");
   const coverLetter = formData.get("coverLetter");
 
-  // 1. Önce bu email ile kayıtlı aday var mı bakalım
-  let candidate = await prisma.user.findUnique({ where: { email } });
+  let candidateId = null;
 
-  // 2. Yoksa yeni bir aday oluşturalım (Otomatik Kayıt)
-  if (!candidate) {
-    candidate = await prisma.user.create({
-      data: {
-        name,
-        email,
-        role: 'CANDIDATE',
-        cvUrl // CV linkini profiline de ekleyelim
-      }
-    });
+  // Oturum açmış kullanıcının ID'sini bulmaya çalış
+  const session = (await cookies()).get("session")?.value;
+  if (session) {
+      try {
+          const secret = new TextEncoder().encode("civildai");
+          const { payload } = await jwtVerify(session, secret);
+          // prisma nesnesinin import edildiğinden emin ol (genelde en üsttedir)
+          const user = await prisma.user.findUnique({ where: { email: payload.email } });
+          if (user) candidateId = user.id;
+      } catch (e) {}
   }
 
-  // 3. Başvuruyu oluşturalım
   await prisma.application.create({
     data: {
+      name,
+      email,
+      resumeUrl: cvUrl,
       coverLetter,
       jobId,
-      candidateId: candidate.id
+      candidateId // <-- Artık ID'yi de kaydediyoruz, böylece profile gidebilirsin
     }
   });
 
-  // 4. İşlem bitince tekrar ana sayfaya dönelim
-  redirect('/');
+  revalidatePath("/jobs");
+  
 }
+
 
 
 // 7. GİRİŞ YAP (LOGIN)
@@ -486,4 +488,269 @@ export async function markNotificationsAsRead(userId) {
     data: { isRead: true }
   });
   revalidatePath("/dashboard");
+}
+// ... Mevcut importlar ...
+
+// 27. GELİŞMİŞ İŞ İLANI OLUŞTUR (Firma İçin)
+// src/app/actions.js dosyasındaki createProfessionalJob fonksiyonunun YENİ HALİ:
+
+// 27. GELİŞMİŞ İŞ İLANI OLUŞTUR (Firma İçin)
+export async function createProfessionalJob(formData) {
+  const companyId = formData.get("companyId");
+  const title = formData.get("title");
+  const description = formData.get("description");
+  const location = formData.get("location");
+  const type = formData.get("type");
+  const salary = formData.get("salary");
+  const experience = formData.get("experience");
+  const workModel = formData.get("workModel");
+  
+  
+  const category = formData.get("category"); 
+
+  await prisma.job.create({
+    data: { 
+        title, 
+        description, 
+        location, 
+        type, 
+        salary, 
+        experience, 
+        workModel, 
+        category, // <-- Buraya formdan gelen veriyi koyuyoruz
+        companyId 
+    }
+  });
+  
+  revalidatePath("/jobs");
+}
+// 28. İLANLARI GETİR (Filtreli)
+export async function getProfessionalJobs(filters = {}) {
+  const { category, search } = filters;
+  
+  const whereClause = { status: 'ACTIVE' };
+  
+  // Eğer kategori seçildiyse filtrele (Usta sadece ustayı görsün istersek)
+  if (category && category !== 'ALL') {
+      whereClause.category = category;
+  }
+
+  // Arama metni varsa
+  if (search) {
+      whereClause.OR = [
+          { title: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } },
+          { company: { name: { contains: search, mode: 'insensitive' } } }
+      ];
+  }
+
+  return await prisma.job.findMany({
+    where: whereClause,
+    include: { company: true, applications: true }, // Başvuru sayısını görmek için
+    orderBy: { createdAt: 'desc' }
+  });
+}
+
+// 29. FİRMANIN KENDİ İLANLARINI VE BAŞVURULARI GETİR
+export async function getCompanyJobsWithApplicants(companyId) {
+    return await prisma.job.findMany({
+        where: { companyId },
+        include: { 
+            applications: { 
+                include: { candidate: true }, // Başvuranın profilini gör
+                orderBy: { createdAt: 'desc' }
+            } 
+        },
+        orderBy: { createdAt: 'desc' }
+    });
+}
+// ... Mevcut kodların altı ...
+
+// 30. MESAJ GÖNDER (DM)
+export async function sendMessage(formData) {
+  const senderId = formData.get("senderId");
+  const receiverId = formData.get("receiverId");
+  const content = formData.get("content");
+
+  await prisma.message.create({
+    data: { content, senderId, receiverId }
+  });
+  
+  revalidatePath("/messages");
+}
+
+// 31. İKİ KİŞİ ARASINDAKİ MESAJLARI GETİR
+export async function getConversation(userId, otherUserId) {
+  // Önce okunmamışları okundu yap
+  await prisma.message.updateMany({
+      where: { senderId: otherUserId, receiverId: userId, isRead: false },
+      data: { isRead: true }
+  });
+
+  return await prisma.message.findMany({
+    where: {
+      OR: [
+        { senderId: userId, receiverId: otherUserId },
+        { senderId: otherUserId, receiverId: userId }
+      ]
+    },
+    orderBy: { createdAt: 'asc' }
+  });
+}
+
+// 32. KONUŞTUĞUM KİŞİLERİ (SON MESAJLA) GETİR
+export async function getMyConversations(userId) {
+  // Tüm mesajlarımı al (Benim attıklarım ve bana gelenler)
+  const messages = await prisma.message.findMany({
+    where: { OR: [{ senderId: userId }, { receiverId: userId }] },
+    orderBy: { createdAt: 'desc' },
+    include: { sender: true, receiver: true }
+  });
+
+  // Kişileri tekilleştir (Unique Users)
+  const conversations = [];
+  const processedUsers = new Set();
+
+  for (const msg of messages) {
+    const otherUser = msg.senderId === userId ? msg.receiver : msg.sender;
+    
+    if (!processedUsers.has(otherUser.id)) {
+      processedUsers.add(otherUser.id);
+      conversations.push({
+        user: otherUser,
+        lastMessage: msg.content,
+        date: msg.createdAt,
+        isRead: msg.senderId === userId ? true : msg.isRead // Ben attıysam okundu say
+      });
+    }
+  }
+  
+  return conversations;
+}
+// ... en alta ekle ...
+
+// 33. ID ile KULLANICI BİLGİSİNİ GETİR (Mesajlaşma Başlatmak İçin)
+export async function getUserById(userId) {
+  try {
+    return await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, profession: true, role: true } 
+    });
+  } catch (error) {
+    return null;
+  }
+}
+// ... En alta ekle ...
+
+// 34. AĞIM - KULLANICI ARAMA (Network Search)
+export async function searchUsers(filters = {}) {
+  const { search, type } = filters; // type: 'ALL', 'COMPANY', 'PROFESSIONAL', 'MAVI_YAKA', 'BEYAZ_YAKA'
+
+  const whereClause = {};
+
+  // 1. Arama Metni (İsim veya Meslek içinde ara)
+  if (search) {
+    whereClause.OR = [
+      { name: { contains: search, mode: 'insensitive' } },
+      { profession: { contains: search, mode: 'insensitive' } }
+    ];
+  }
+
+  // 2. Tip Filtresi
+  if (type === 'COMPANY') {
+    whereClause.role = 'COMPANY';
+  } else if (type === 'PROFESSIONAL') {
+    whereClause.role = 'PROFESSIONAL';
+  } else if (type === 'MAVI_YAKA') {
+    // Mavi Yaka Regex Mantığı (Basitçe)
+    whereClause.role = 'PROFESSIONAL';
+    whereClause.profession = { contains: 'usta', mode: 'insensitive' }; // İleride daha detaylı regex yapılabilir
+  } else if (type === 'BEYAZ_YAKA') {
+    // Beyaz Yaka (Mimar, Mühendis vb.)
+    whereClause.role = 'PROFESSIONAL';
+    whereClause.NOT = { profession: { contains: 'usta', mode: 'insensitive' } };
+  }
+
+  // Kendini getirmesin (Opsiyonel ama client tarafında filtrelemek daha kolay)
+  
+  try {
+    return await prisma.user.findMany({
+      where: whereClause,
+      select: {
+        id: true, name: true, role: true, profession: true, cvUrl: true, createdAt: true,
+        // İleride buraya 'followers' sayısı eklenebilir
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50 // Sayfa şişmesin diye limit
+    });
+  } catch (error) {
+    return [];
+  }
+}
+// ... En alta ekle ...
+
+// 35. KULLANICIYI TAKİP ET (AĞINA EKLE)
+export async function followUser(formData) {
+  const followerId = formData.get("followerId");   // Ben
+  const followingId = formData.get("followingId"); // Eklediğim Kişi
+
+  try {
+    await prisma.follows.create({
+      data: {
+        followerId,
+        followingId
+      }
+    });
+    // Sayfayı yenile ki buton "Takip Ediliyor"a dönsün
+    revalidatePath("/network");
+    revalidatePath("/dashboard"); 
+  } catch (error) {
+    // Zaten takip ediyorsa hata verebilir, sessizce geçelim
+    console.log("Zaten takip ediliyor");
+  }
+}
+// ... En alta ...
+
+// 36. MÜSAİTLİK DURUMUNU DEĞİŞTİR (Yeşil/Kırmızı Işık)
+export async function toggleAvailability(userId, currentStatus) {
+  await prisma.user.update({
+    where: { id: userId },
+    data: { isAvailable: !currentStatus }
+  });
+  revalidatePath("/dashboard");
+  revalidatePath("/network");
+  revalidatePath(`/profile/${userId}`);
+}
+
+// 37. DOĞRULAMA BELGESİ YÜKLE (Başvuru Yap)
+// src/app/actions.js içindeki requestVerification fonksiyonu:
+
+// 37. DOĞRULAMA BELGESİ YÜKLE
+export async function requestVerification(formData) {
+  const userId = formData.get("userId");
+  const file = formData.get("file"); // Dosya verisi (Simülasyon için)
+
+  // Burada normalde dosyayı S3 veya Blob'a yükleriz.
+  // Şimdilik yüklenmiş gibi yapıp durumu güncelliyoruz.
+  
+  await prisma.user.update({
+    where: { id: userId },
+    data: { 
+      verificationDoc: "https://placehold.co/600x800.png?text=Yuklenen+Belge", // Demo link
+      verificationStatus: "PENDING" // Durumu 'İncelemede' yap
+    }
+  });
+  revalidatePath("/dashboard");
+}
+
+// 38. ADMİN ONAYI (Bu fonksiyonu sadece admin kullanmalı)
+export async function approveUser(targetUserId) {
+  await prisma.user.update({
+    where: { id: targetUserId },
+    data: { 
+      isVerified: true,
+      verificationStatus: "APPROVED"
+    }
+  });
+  revalidatePath("/network");
 }

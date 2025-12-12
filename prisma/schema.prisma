@@ -16,7 +16,19 @@ model User {
   
   // ROL: "COMPANY", "PROFESSIONAL", "INDIVIDUAL"
   role          String    @default("INDIVIDUAL") 
+
+  // 1. MÜSAİTLİK DURUMU
+  isAvailable       Boolean  @default(true) // Yeşil Işık (Boşta mı?)
   
+  // 2. ONAY SİSTEMİ (VERIFIED)
+  isVerified        Boolean  @default(false) // Mavi Tik var mı?
+  verificationStatus String  @default("NONE") // NONE, PENDING, REJECTED, APPROVED
+  verificationDoc   String?  // Yüklenen belgenin linki
+  
+  // 3. KONUM (HARİTA İÇİN)
+  city              String?  // Şehir (Zaten location string'imiz vardı ama bu filtre için)
+  latitude          Float?   // Enlem (Harita konumu)
+  longitude         Float?   // Boylam
   // MESLEK: Sadece Profesyoneller için
   profession    String?   
   cvUrl         String?
@@ -24,6 +36,8 @@ model User {
   // --- İLİŞKİLER ---
   projects      Project[]      // Kendi oluşturduğu projeler
   jobs          Job[]          // Verdiği iş ilanları
+  
+  // BURADAKİ HATAYI ÇÖZMEK İÇİN AŞAĞIDAKİ APPLICATION MODELİ ŞART
   applications  Application[]  // Yaptığı başvurular
   
   // Takip Sistemi
@@ -50,10 +64,17 @@ model User {
 // --- 2. İŞ İLANI (JOB BOARD) ---
 model Job {
   id          String   @id @default(cuid())
-  title       String
-  location    String?
-  description String?
-  type        String?  
+  title       String   // Pozisyon Adı
+  description String   // Detaylar
+  location    String?  // Konum
+  
+  // YENİ EKLENEN PROFESYONEL ALANLAR
+  type        String?  // Tam Zamanlı, Yarı Zamanlı, Proje Bazlı
+  workModel   String?  // Şantiyede, Ofiste, Hibrit
+  salary      String?  // Örn: "30.000 - 45.000 TL"
+  experience  String?  // Örn: "5+ Yıl", "Tecrübesiz"
+  category    String?  // "MAVI_YAKA" veya "BEYAZ_YAKA"
+  
   status      String   @default("ACTIVE") 
   
   companyId   String
@@ -64,16 +85,19 @@ model Job {
   createdAt   DateTime @default(now())
 }
 
+// --- EKSİK OLAN MODEL BU: BAŞVURULAR ---
 model Application {
   id          String   @id @default(cuid())
   coverLetter String?
   name        String?
   email       String?
-  resumeUrl   String? 
+  resumeUrl   String?  // CV Linki
   
+  // Aday (User) ilişkisi
   candidateId String?  
   candidate   User?    @relation(fields: [candidateId], references: [id])
   
+  // İlan (Job) ilişkisi
   jobId       String
   job         Job      @relation(fields: [jobId], references: [id])
 
@@ -98,12 +122,12 @@ model Project {
   siteLogs    SiteLog[]        // Şantiye Duvarı
   tenders     Tender[]         // İhaleler
   messages    ProjectMessage[] // Sohbet
-  documents   ProjectDocument[] // Belgeler (YENİ EKLENDİ)
+  documents   ProjectDocument[] // Belgeler
 
   createdAt   DateTime @default(now())
 }
 
-// --- 4. BELGELER (YENİ) ---
+// --- 4. BELGELER ---
 model ProjectDocument {
   id          String   @id @default(cuid())
   name        String   // Dosya adı
@@ -139,7 +163,7 @@ model SiteLog {
   id          String   @id @default(cuid())
   content     String
   imageUrl    String?
-  mediaUrl    String?  // Video/Foto linki (GÜNCELLENDİ)
+  mediaUrl    String?  
   
   projectId   String   
   project     Project  @relation(fields: [projectId], references: [id])
@@ -189,7 +213,7 @@ model Proposal {
 model ProjectMessage {
   id        String   @id @default(cuid())
   content   String
-  mediaUrl  String?  // Medya linki (GÜNCELLENDİ)
+  mediaUrl  String?  
   
   projectId String
   project   Project  @relation(fields: [projectId], references: [id])
@@ -200,7 +224,7 @@ model ProjectMessage {
   createdAt DateTime @default(now())
 }
 
-// --- 9. BİLDİRİMLER (YENİ) ---
+// --- 9. BİLDİRİMLER ---
 model Notification {
   id          String   @id @default(cuid())
   content     String   
@@ -217,6 +241,8 @@ model Notification {
 model Message {
   id          String   @id @default(cuid())
   content     String
+  isRead      Boolean  @default(false) // <-- YENİ: Okundu bilgisi
+
   senderId    String
   receiverId  String
   createdAt   DateTime @default(now())

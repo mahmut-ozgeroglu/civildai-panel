@@ -1,9 +1,9 @@
 // src/app/profile/[id]/page.js
 
-// 1. Prisma'yı çağırıyoruz (3 üst klasöre çıkıp lib'e giriyoruz)
+// 1. Prisma'yı çağırmak için (3 nokta yukarı çıkıp lib'e giriyoruz):
 import { prisma } from "../../../lib/prisma"; 
 
-// 2. Actions dosyasını çağırıyoruz (2 üst klasöre çıkıp app içindeki actions'ı alıyoruz)
+// 2. Actions dosyasını çağırmak için (2 nokta yukarı çıkıp app klasöründeki actions'ı alıyoruz):
 import { getUserProjects } from "../../actions"; 
 
 import PublicProfileClient from "./PublicProfileClient"; 
