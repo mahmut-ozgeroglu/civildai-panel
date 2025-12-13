@@ -6,6 +6,7 @@ import { compare } from "bcryptjs";
 import { SignJWT } from "jose";
 import { cookies } from "next/headers";
 import { jwtVerify } from "jose";
+import bcrypt from "bcryptjs";
 
 // 1. İlanları Getir
 export async function getJobs() {
@@ -150,24 +151,55 @@ export async function applyToJob(formData) {
   
 }
 
+// 1. KAYIT OL (REGISTER) - GÜNCELLENDİ
+export async function register(formData) {
+  const name = formData.get("name");
+  const email = formData.get("email");
+  const rawPassword = formData.get("password"); // Kullanıcının girdiği ham şifre
+  const role = formData.get("role");
+  const profession = formData.get("profession");
 
+  // ÖNEMLİ: Şifreyi veritabanına kaydetmeden önce Hash'liyoruz (Şifreliyoruz)
+  const hashedPassword = await bcrypt.hash(rawPassword, 10);
 
-// 7. GİRİŞ YAP (LOGIN)
+  try {
+    await prisma.user.create({
+      data: {
+        name,
+        email,
+        password: hashedPassword, // <--- ARTIK ŞİFRELİ HALİNİ KAYDEDİYORUZ
+        role,
+        profession,
+      },
+    });
+  } catch (error) {
+    // Email zaten varsa hata dönebilir veya redirect edebilirsin
+    return { error: "Bu email adresi zaten kayıtlı." };
+  }
+
+  // Kayıt başarılıysa girişe yönlendir
+  redirect("/login");
+}
+
+// ...
+
+// 7. GİRİŞ YAP (LOGIN) - GÜNCELLENDİ
 export async function login(formData) {
   const email = formData.get("email");
   const password = formData.get("password");
 
   // 1. Kullanıcıyı bul
   const user = await prisma.user.findUnique({ where: { email } });
-  
-  if (!user) {
-    // Güvenlik gereği "Kullanıcı yok" demeyiz, genel hata veririz
+
+  // Kullanıcı yoksa veya veritabanında şifresi yoksa hata ver
+  if (!user || !user.password) {
+    // Güvenlik gereği detay vermiyoruz
     throw new Error("Email veya şifre hatalı!");
   }
 
   // 2. Şifreyi kontrol et (Bcrypt ile)
-  // user.password veritabanındaki şifreli hali, password ise formdan gelen
-  const isPasswordValid = await compare(password, user.password || "");
+  // user.password (Veritabanındaki Hash) ile password (Girişte yazılan) karşılaştırılır
+  const isPasswordValid = await bcrypt.compare(password, user.password);
 
   if (!isPasswordValid) {
     throw new Error("Email veya şifre hatalı!");
@@ -178,25 +210,25 @@ export async function login(formData) {
   const token = await new SignJWT({ email: user.email, role: user.role })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-    .setExpirationTime("2h") // Oturum 2 saat sürsün
+    .setExpirationTime("24h") // Oturumu 24 saat yapalım, 2 saat kısa olabilir
     .sign(secret);
 
   // 4. Bileti Tarayıcıya Yapıştır (Cookie)
   (await cookies()).set("session", token, {
     httpOnly: true,
-    secure: false,
-    maxAge: 60 * 60 * 2, // 2 saat
+    // Canlıya (Production) geçince HTTPS zorunlu olsun, yerelde (Localhost) olmasın
+    secure: process.env.NODE_ENV === "production", 
+    maxAge: 60 * 60 * 24, // 24 saat
     path: "/",
   });
 
   // 5. Panele gönder
+  // Eğer tedarikçiyse tedarikçi sayfasına, değilse normale de yönlendirebilirsin
+  // Ama şimdilik herkesi dashboard'a atalım, dashboard.js içinde yönlendirme zaten var.
   redirect("/dashboard");
 }
 
-// 8. ÇIKIŞ YAP (LOGOUT)
-export async function logout() {
-(await cookies()).delete("session");  redirect("/login");
-}
+
 
 // 9. PROFİL GÜNCELLE
 export async function updateProfile(formData) {
@@ -753,4 +785,139 @@ export async function approveUser(targetUserId) {
     }
   });
   revalidatePath("/network");
+}
+// ... En alta ekle ...
+
+// 39. TEDARİKÇİLERİ GETİR (Sipariş verirken seçmek için)
+export async function getSuppliers() {
+  return await prisma.user.findMany({
+    where: { role: 'SUPPLIER' },
+    select: { id: true, name: true, profession: true, city: true }
+  });
+}
+
+// 40. SİPARİŞ OLUŞTUR
+export async function createOrder(formData) {
+  const projectId = formData.get("projectId");
+  const supplierId = formData.get("supplierId");
+  const orderedById = formData.get("orderedById");
+  const note = formData.get("note");
+  
+  // Formdan gelen ürün kalemleri (Basitlik için tek kalem veya JSON olarak alabiliriz)
+  // Şimdilik demo için 1 ana kalem alalım, ileride dinamik form yaparız
+  const itemName = formData.get("itemName");
+  const itemQuantity = parseInt(formData.get("itemQuantity"));
+  const itemUnit = formData.get("itemUnit");
+
+  await prisma.order.create({
+    data: {
+      projectId,
+      supplierId,
+      orderedById,
+      note,
+      status: "PENDING",
+      items: {
+        create: [
+          { name: itemName, quantity: itemQuantity, unit: itemUnit }
+        ]
+      }
+    }
+  });
+  
+  revalidatePath(`/projects/${projectId}`);
+}
+
+// 41. SİPARİŞ DURUMUNU GÜNCELLE (Onayla, Yola Çıkar, Teslim Al)
+export async function updateOrderStatus(orderId, newStatus) {
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { status: newStatus }
+  });
+  // Hem proje sayfasını hem dashboard'u yenile
+  revalidatePath("/dashboard"); 
+  // Burada revalidatePath dinamik ID ile çalışmayabilir, sayfa yenilenince düzelir.
+}
+
+// 42. PROJE SİPARİŞLERİNİ GETİR
+export async function getProjectOrders(projectId) {
+  return await prisma.order.findMany({
+    where: { projectId },
+    include: {
+      supplier: true,
+      orderedBy: true,
+      items: true
+    },
+    orderBy: { createdAt: 'desc' }
+  });
+}
+// ... En alta ekle ...
+
+// 43. TEDARİKÇİ SİPARİŞLERİNİ GETİR
+export async function getSupplierOrders(supplierId) {
+  return await prisma.order.findMany({
+    where: { supplierId }, // Sadece bana gelenler
+    include: {
+      project: true,    // Hangi projeye?
+      orderedBy: true,  // Kim istedi?
+      items: true       // Ne istedi?
+    },
+    orderBy: { createdAt: 'desc' }
+  });
+}
+// ... En alta ekle ...
+
+// 44. YOKLAMA AL (Puantaj Gir)
+export async function markAttendance(formData) {
+  const projectId = formData.get("projectId");
+  const userId = formData.get("userId"); // Sistemdeki kullanıcı (Varsa)
+  const workerName = formData.get("workerName"); // Kayıtsız işçi ismi (Varsa)
+  const status = "PRESENT";
+
+  // Aynı gün, aynı kişi için mükerrer kayıt olmasın (Basit kontrol)
+  // Gerçek projede tarih aralığı kontrolü yapılır, şimdilik direkt ekleyelim.
+  
+  await prisma.attendance.create({
+    data: {
+      projectId,
+      userId: userId || null,
+      workerName: workerName || null,
+      status
+    }
+  });
+  
+  revalidatePath(`/projects/${projectId}`);
+}
+
+// 45. PROJENİN BUGÜNKÜ ÇALIŞANLARINI GETİR
+export async function getProjectAttendance(projectId) {
+  // Bugünün başlangıcı ve bitişi
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  return await prisma.attendance.findMany({
+    where: {
+      projectId,
+      createdAt: {
+        gte: today,
+        lt: tomorrow
+      }
+    },
+    include: {
+      user: true // Kullanıcı detaylarını al
+    },
+    orderBy: { createdAt: 'desc' }
+  });
+}
+
+// 46. PROJE EKİBİNİ (O projede yetkili veya daha önce çalışmış kişileri) GETİR
+// Bu, yoklama listesinde hızlı seçim yapmak için
+export async function getProjectWorkers(projectId) {
+    // Şimdilik sistemdeki tüm PROFESYONELLERİ getirelim demo için.
+    // İleride sadece o projeye atanmışları getirebiliriz.
+    return await prisma.user.findMany({
+        where: { role: 'PROFESSIONAL' } 
+    });
 }

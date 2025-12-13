@@ -1,10 +1,32 @@
+// prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "postgresql" // Or "sqlite" if you are still developing locally with SQLite
   url      = env("DATABASE_URL")
+}
+
+// --- 0. ENUMS ---
+
+// Roller
+enum Role {
+  INDIVIDUAL
+  COMPANY
+  PROFESSIONAL
+  SUPPLIER // <-- YENİ: Tedarikçi Rolü
+}
+
+// Sipariş Durumları
+enum OrderStatus {
+  PENDING    // Bekliyor (Mimar siparişi geçti)
+  APPROVED   // Onaylandı (Tedarikçi gördü, hazırlıyor)
+  SHIPPED    // Nakliyede (Tedarikçi kamyona yükledi)
+  DELIVERED  // Teslim Edildi (Şantiyeye bırakıldı)
+  RECEIVED   // Teslim Alındı (Şantiye şefi malı saydı ve onayladı)
+  CANCELLED  // İptal
 }
 
 // --- 1. KULLANICI (USER) ---
@@ -14,7 +36,7 @@ model User {
   email         String    @unique
   password      String?
   
-  // ROL: "COMPANY", "PROFESSIONAL", "INDIVIDUAL"
+  // ROL: "COMPANY", "PROFESSIONAL", "INDIVIDUAL", "SUPPLIER"
   role          String    @default("INDIVIDUAL") 
 
   // 1. MÜSAİTLİK DURUMU
@@ -29,16 +51,17 @@ model User {
   city              String?  // Şehir (Zaten location string'imiz vardı ama bu filtre için)
   latitude          Float?   // Enlem (Harita konumu)
   longitude         Float?   // Boylam
+  
   // MESLEK: Sadece Profesyoneller için
   profession    String?   
   cvUrl         String?
 
   // --- İLİŞKİLER ---
-  projects      Project[]      // Kendi oluşturduğu projeler
-  jobs          Job[]          // Verdiği iş ilanları
+  projects      Project[]       // Kendi oluşturduğu projeler
+  jobs          Job[]           // Verdiği iş ilanları
   
-  // BURADAKİ HATAYI ÇÖZMEK İÇİN AŞAĞIDAKİ APPLICATION MODELİ ŞART
-  applications  Application[]  // Yaptığı başvurular
+  // BAŞVURULAR
+  applications  Application[]   // Yaptığı başvurular
   
   // Takip Sistemi
   followedBy    Follows[] @relation("followedBy")
@@ -46,167 +69,179 @@ model User {
   
   // Proje Yönetimi
   projectMemberships ProjectMember[]
-  tasks         Task[]         // Atandığı görevler
-  siteLogs      SiteLog[]      // Paylaştığı şantiye fotoları
-  tenders       Tender[]       // Açtığı ihaleler
-  proposals     Proposal[]     // Verdiği teklifler
-  projectMsgs   ProjectMessage[] 
-  uploadedDocs  ProjectDocument[] // Yüklediği belgeler
+  tasks          Task[]          // Atandığı görevler
+  siteLogs       SiteLog[]       // Paylaştığı şantiye fotoları
+  tenders        Tender[]        // Açtığı ihaleler
+  proposals      Proposal[]      // Verdiği teklifler
+  projectMsgs    ProjectMessage[] 
+  uploadedDocs   ProjectDocument[] // Yüklediği belgeler
 
   // Mesajlaşma & Bildirim
-  sentMsgs      Message[]      @relation("SentMessages")
-  receivedMsgs  Message[]      @relation("ReceivedMessages")
-  notifications Notification[] // Kullanıcının bildirimleri
+  sentMsgs       Message[]       @relation("SentMessages")
+  receivedMsgs   Message[]       @relation("ReceivedMessages")
+  notifications  Notification[]  // Kullanıcının bildirimleri
   
-  createdAt     DateTime       @default(now())
+  // TEDARİK ZİNCİRİ İLİŞKİLERİ
+  receivedOrders Order[]         @relation("SupplierOrders") // Tedarikçiyse aldığı siparişler
+  placedOrders   Order[]         @relation("UserOrders")     // Mimar/Şefse verdiği siparişler
+
+  // PUANTAJ (YOKLAMA) İLİŞKİSİ
+  attendances    Attendance[]    // Kişinin işe geliş kayıtları
+
+  createdAt      DateTime        @default(now())
 }
 
 // --- 2. İŞ İLANI (JOB BOARD) ---
 model Job {
-  id          String   @id @default(cuid())
-  title       String   // Pozisyon Adı
-  description String   // Detaylar
-  location    String?  // Konum
+  id            String   @id @default(cuid())
+  title         String   // Pozisyon Adı
+  description   String   // Detaylar
+  location      String?  // Konum
   
   // YENİ EKLENEN PROFESYONEL ALANLAR
-  type        String?  // Tam Zamanlı, Yarı Zamanlı, Proje Bazlı
-  workModel   String?  // Şantiyede, Ofiste, Hibrit
-  salary      String?  // Örn: "30.000 - 45.000 TL"
-  experience  String?  // Örn: "5+ Yıl", "Tecrübesiz"
-  category    String?  // "MAVI_YAKA" veya "BEYAZ_YAKA"
+  type          String?  // Tam Zamanlı, Yarı Zamanlı, Proje Bazlı
+  workModel     String?  // Şantiyede, Ofiste, Hibrit
+  salary        String?  // Örn: "30.000 - 45.000 TL"
+  experience    String?  // Örn: "5+ Yıl", "Tecrübesiz"
+  category      String?  // "MAVI_YAKA" veya "BEYAZ_YAKA"
   
-  status      String   @default("ACTIVE") 
+  status        String   @default("ACTIVE") 
   
-  companyId   String
-  company     User     @relation(fields: [companyId], references: [id])
+  companyId     String
+  company       User     @relation(fields: [companyId], references: [id])
   
-  applications Application[]
+  applications  Application[]
 
-  createdAt   DateTime @default(now())
+  createdAt     DateTime @default(now())
 }
 
-// --- EKSİK OLAN MODEL BU: BAŞVURULAR ---
+// --- BAŞVURULAR ---
 model Application {
-  id          String   @id @default(cuid())
-  coverLetter String?
-  name        String?
-  email       String?
-  resumeUrl   String?  // CV Linki
+  id            String   @id @default(cuid())
+  coverLetter   String?
+  name          String?
+  email         String?
+  resumeUrl     String?  // CV Linki
   
   // Aday (User) ilişkisi
-  candidateId String?  
-  candidate   User?    @relation(fields: [candidateId], references: [id])
+  candidateId   String?  
+  candidate     User?    @relation(fields: [candidateId], references: [id])
   
   // İlan (Job) ilişkisi
-  jobId       String
-  job         Job      @relation(fields: [jobId], references: [id])
+  jobId         String
+  job           Job      @relation(fields: [jobId], references: [id])
 
-  createdAt   DateTime @default(now())
+  createdAt     DateTime @default(now())
 }
 
 // --- 3. PROJE YÖNETİMİ (ANA MERKEZ) ---
 model Project {
-  id          String   @id @default(cuid())
-  title       String
-  description String
-  location    String?
-  imageUrl    String?  
-  status      String   @default("ONGOING") 
+  id            String   @id @default(cuid())
+  title         String
+  description   String
+  location      String?
+  imageUrl      String?  
+  status        String   @default("ONGOING") 
+  endDate       DateTime? // Bitiş Tarihi (ProjectDetailClient'ta kullanılıyor)
   
-  ownerId     String
-  owner       User     @relation(fields: [ownerId], references: [id])
+  ownerId       String
+  owner         User     @relation(fields: [ownerId], references: [id])
   
   // MODÜLLER
-  members     ProjectMember[]  // Ekip
-  tasks       Task[]           // İş Takibi
-  siteLogs    SiteLog[]        // Şantiye Duvarı
-  tenders     Tender[]         // İhaleler
-  messages    ProjectMessage[] // Sohbet
-  documents   ProjectDocument[] // Belgeler
+  members       ProjectMember[]  // Ekip
+  tasks         Task[]           // İş Takibi
+  siteLogs      SiteLog[]        // Şantiye Duvarı
+  tenders       Tender[]         // İhaleler
+  messages      ProjectMessage[] // Sohbet
+  documents     ProjectDocument[] // Belgeler
+  
+  // YENİ MODÜLLER
+  orders        Order[]          // Bu projeye ait siparişler
+  attendances   Attendance[]     // Projedeki tüm yoklamalar
 
-  createdAt   DateTime @default(now())
+  createdAt     DateTime @default(now())
 }
 
 // --- 4. BELGELER ---
 model ProjectDocument {
-  id          String   @id @default(cuid())
-  name        String   // Dosya adı
-  url         String   // Link
-  type        String   // PDF, DWG
+  id            String   @id @default(cuid())
+  name          String   // Dosya adı
+  url           String   // Link
+  type          String   // PDF, DWG
   
-  projectId   String
-  project     Project  @relation(fields: [projectId], references: [id])
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id])
   
-  uploaderId  String
-  uploader    User     @relation(fields: [uploaderId], references: [id])
+  uploaderId    String
+  uploader      User     @relation(fields: [uploaderId], references: [id])
   
-  createdAt   DateTime @default(now())
+  createdAt     DateTime @default(now())
 }
 
 // --- 5. İŞ TAKİBİ (TASK) ---
 model Task {
-  id          String   @id @default(cuid())
-  title       String
-  status      String   @default("TODO") 
+  id            String   @id @default(cuid())
+  title         String
+  status        String   @default("TODO") 
   
-  projectId   String   
-  project     Project  @relation(fields: [projectId], references: [id])
+  projectId     String   
+  project       Project  @relation(fields: [projectId], references: [id])
 
-  userId      String?  
-  user        User?    @relation(fields: [userId], references: [id])
+  userId        String?  
+  user          User?    @relation(fields: [userId], references: [id])
 
-  createdAt   DateTime @default(now())
+  createdAt     DateTime @default(now())
 }
 
 // --- 6. ŞANTİYE GÜNLÜĞÜ ---
 model SiteLog {
-  id          String   @id @default(cuid())
-  content     String
-  imageUrl    String?
-  mediaUrl    String?  
+  id            String   @id @default(cuid())
+  content       String
+  imageUrl      String?
+  mediaUrl      String?  
   
-  projectId   String   
-  project     Project  @relation(fields: [projectId], references: [id])
+  projectId     String   
+  project       Project  @relation(fields: [projectId], references: [id])
 
-  userId      String   
-  user        User     @relation(fields: [userId], references: [id])
+  userId        String   
+  user          User     @relation(fields: [userId], references: [id])
 
-  createdAt   DateTime @default(now())
+  createdAt     DateTime @default(now())
 }
 
 // --- 7. İHALE SİSTEMİ ---
 model Tender {
-  id          String     @id @default(cuid())
-  title       String
-  description String
-  budget      String?    
-  deadline    DateTime?  
-  status      String     @default("OPEN")
+  id            String      @id @default(cuid())
+  title         String
+  description   String
+  budget        String?     
+  deadline      DateTime?   
+  status        String      @default("OPEN")
   
-  projectId   String     
-  project     Project    @relation(fields: [projectId], references: [id])
+  projectId     String      
+  project       Project     @relation(fields: [projectId], references: [id])
   
-  companyId   String     
-  company     User       @relation(fields: [companyId], references: [id])
+  companyId     String      
+  company       User        @relation(fields: [companyId], references: [id])
   
-  proposals   Proposal[] 
+  proposals     Proposal[]  
   
-  createdAt   DateTime   @default(now())
+  createdAt     DateTime    @default(now())
 }
 
 model Proposal {
-  id          String   @id @default(cuid())
-  price       String   
-  note        String?  
-  status      String   @default("PENDING")
+  id            String   @id @default(cuid())
+  price         String   
+  note          String?  
+  status        String   @default("PENDING")
   
-  tenderId    String
-  tender      Tender   @relation(fields: [tenderId], references: [id])
+  tenderId      String
+  tender        Tender   @relation(fields: [tenderId], references: [id])
   
-  bidderId    String   
-  bidder      User     @relation(fields: [bidderId], references: [id])
+  bidderId      String   
+  bidder        User     @relation(fields: [bidderId], references: [id])
   
-  createdAt   DateTime @default(now())
+  createdAt     DateTime @default(now())
 }
 
 // --- 8. PROJE SOHBETİ ---
@@ -226,54 +261,107 @@ model ProjectMessage {
 
 // --- 9. BİLDİRİMLER ---
 model Notification {
-  id          String   @id @default(cuid())
-  content     String   
-  link        String?  
-  isRead      Boolean  @default(false)
+  id            String   @id @default(cuid())
+  content       String   
+  link          String?  
+  isRead        Boolean  @default(false)
   
-  userId      String   
-  user        User     @relation(fields: [userId], references: [id])
+  userId        String   
+  user          User     @relation(fields: [userId], references: [id])
   
-  createdAt   DateTime @default(now())
+  createdAt     DateTime @default(now())
 }
 
 // --- 10. GENEL MESAJLAŞMA & TAKİP ---
 model Message {
-  id          String   @id @default(cuid())
-  content     String
-  isRead      Boolean  @default(false) // <-- YENİ: Okundu bilgisi
+  id            String   @id @default(cuid())
+  content       String
+  isRead        Boolean  @default(false) 
 
-  senderId    String
-  receiverId  String
-  createdAt   DateTime @default(now())
+  senderId      String
+  receiverId    String
+  createdAt     DateTime @default(now())
   
-  sender      User     @relation("SentMessages", fields: [senderId], references: [id])
-  receiver    User     @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  sender        User     @relation("SentMessages", fields: [senderId], references: [id])
+  receiver      User     @relation("ReceivedMessages", fields: [receiverId], references: [id])
 }
 
 model Follows {
-  follower    User @relation("following", fields: [followerId], references: [id])
-  followerId  String
-  following   User @relation("followedBy", fields: [followingId], references: [id])
-  followingId String
+  follower      User @relation("following", fields: [followerId], references: [id])
+  followerId    String
+  following     User @relation("followedBy", fields: [followingId], references: [id])
+  followingId   String
 
   @@id([followerId, followingId])
 }
 
 // --- 11. PROJE EKİBİ ---
 model ProjectMember {
-  id              String   @id @default(cuid())
-  roleTitle       String   
+  id               String   @id @default(cuid())
+  roleTitle        String   
   canManageTenders Boolean @default(false) 
   canManageTasks   Boolean @default(false) 
 
-  projectId       String
-  project         Project  @relation(fields: [projectId], references: [id])
+  projectId        String
+  project          Project  @relation(fields: [projectId], references: [id])
 
-  userId          String
-  user            User     @relation(fields: [userId], references: [id])
+  userId           String
+  user             User     @relation(fields: [userId], references: [id])
 
-  createdAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
 
   @@unique([projectId, userId]) 
+}
+
+// --- 12. SİPARİŞ SİSTEMİ (TEDARİK ZİNCİRİ) ---
+model Order {
+  id          String      @id @default(cuid())
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  
+  status      OrderStatus @default(PENDING)
+  note        String?     // Örn: "Şantiye girişinde 2. kapıyı kullanın"
+  totalPrice  Float?      // Opsiyonel: Tahmini tutar
+
+  // İlişkiler
+  projectId   String
+  project     Project     @relation(fields: [projectId], references: [id])
+
+  supplierId  String      // Siparişi alan (Tedarikçi)
+  supplier    User        @relation("SupplierOrders", fields: [supplierId], references: [id])
+
+  orderedById String      // Siparişi veren (Bizim Mimar)
+  orderedBy   User        @relation("UserOrders", fields: [orderedById], references: [id])
+
+  items       OrderItem[] // Siparişin içindeki malzemeler
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  name      String  // Örn: C30 Beton
+  quantity  Int     // Örn: 100
+  unit      String  // Örn: m3, Torba, Adet
+  
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+// --- 13. PUANTAJ (YOKLAMA) SİSTEMİ ---
+model Attendance {
+  id        String   @id @default(cuid())
+  date      DateTime @default(now()) // Hangi gün?
+  
+  status    String   @default("PRESENT") // PRESENT (Geldi), ABSENT (Gelmedi), LEAVE (İzinli)
+  
+  // Sistemde kayıtlı olmayan (geçici amele vb.) işçiler için
+  workerName String? 
+  
+  // İlişkiler
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id])
+
+  userId    String?  // Eğer sistemde kayıtlı bir kullanıcıysa
+  user      User?    @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
 }

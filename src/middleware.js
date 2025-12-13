@@ -1,38 +1,40 @@
 // src/middleware.js
-import { NextResponse } from "next/server";
-import { jwtVerify } from "jose";
+import { NextResponse } from 'next/server';
+import { jwtVerify } from 'jose';
 
 export async function middleware(request) {
-  // 1. Gidilmek istenen sayfayı al
-  const path = request.nextUrl.pathname;
+  const session = request.cookies.get('session')?.value;
+  const { pathname } = request.nextUrl;
 
-  // 2. Eğer kullanıcı Dashboard'a girmeye çalışıyorsa
-  if (path.startsWith("/dashboard")) {
-    
-    // 3. Çerezlerdeki "session" biletini al
-    const session = request.cookies.get("session")?.value;
+  // Korunan rotalar (Giriş yapmadan girilemeyecek yerler)
+  const protectedRoutes = ['/dashboard', '/profile', '/network', '/jobs', '/projects', '/messages'];
+  
+  // Giriş yapmış kullanıcının girmesine gerek olmayan rotalar
+  const authRoutes = ['/login', '/register'];
 
-    // 4. Bilet yoksa veya geçersizse -> Login sayfasına at
-    if (!session) {
-      return NextResponse.redirect(new URL("/login", request.url));
-    }
+  const isProtected = protectedRoutes.some(route => pathname.startsWith(route));
+  const isAuthRoute = authRoutes.some(route => pathname.startsWith(route));
 
+  // 1. Eğer sayfaya koruma lazımsa ve oturum yoksa -> Login'e at
+  if (isProtected && !session) {
+    return NextResponse.redirect(new URL('/login', request.url));
+  }
+
+  // 2. Eğer zaten giriş yapmışsa ve Login/Register'a girmeye çalışıyorsa -> Dashboard'a at
+  if (isAuthRoute && session) {
     try {
-      // Bileti doğrula (Sahte mi gerçek mi?)
-      const secret = new TextEncoder().encode("civildai");
-      await jwtVerify(session, secret);
-      // Her şey yolundaysa geçmesine izin ver
-      return NextResponse.next();
-    } catch (error) {
-      // Bilet sahteyse -> Login sayfasına at
-      return NextResponse.redirect(new URL("/login", request.url));
+        const secret = new TextEncoder().encode("civildai");
+        await jwtVerify(session, secret);
+        return NextResponse.redirect(new URL('/dashboard', request.url));
+    } catch (e) {
+        // Token bozuksa devam etsin (Login sayfasına düşer)
     }
   }
 
   return NextResponse.next();
 }
 
-// Hangi sayfalarda çalışsın?
+// Hangi yollarda çalışacağını belirtiyoruz
 export const config = {
-  matcher: ["/dashboard/:path*"], // Dashboard ve altındaki her şeyi koru
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
 };
